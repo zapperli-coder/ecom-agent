@@ -1,0 +1,37 @@
+{
+  "name": "ecom-agent",
+  "version": "0.1.0",
+  "description": "Sync your JD and Taobao orders and pre-declare the parcels into your shexp68 (盛世领航) forwarding warehouse.",
+  "license": "MIT",
+  "keywords": [
+    "shexp68",
+    "盛世领航",
+    "taobao",
+    "jd",
+    "集运",
+    "parcel-forwarding",
+    "playwright"
+  ],
+  "type": "module",
+  "bin": {
+    "ecom": "src/cli.js"
+  },
+  "files": [
+    "src/",
+    "start.bat",
+    "start.ps1",
+    ".env.example",
+    "README.md"
+  ],
+  "scripts": {
+    "ecom": "node --disable-warning=ExperimentalWarning src/cli.js",
+    "test": "node --test",
+    "release": "node scripts/release.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}

@@ -1,0 +1,19 @@
+# Runtime data — contains your login session & personal order data. Never commit.
+data/
+*.db
+*.sqlite3
+
+# Personal settings / credentials. Template: .env.example
+.env
+.env.*
+!.env.example
+
+# Release output
+dist/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Node
+node_modules/
+npm-debug.log*

@@ -1,0 +1,183 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>eCom Agent</title>
+<style>
+ :root{color-scheme:light dark}
+ *{box-sizing:border-box}
+ body{font:14px/1.5 system-ui,"Segoe UI",sans-serif;margin:0;background:#0f1115;color:#e7e9ee}
+ header{padding:12px 20px;background:#171a21;border-bottom:1px solid #262b36;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+ h1{font-size:16px;margin:0;font-weight:600}
+ .dot{width:8px;height:8px;border-radius:50%;background:#3ddc84;display:inline-block}
+ .spacer{flex:1}
+ .status{color:#9aa3b2;font-size:12px;min-height:16px}
+ .btn{border:1px solid #2f3644;background:#222836;color:#e7e9ee;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+ .btn:hover{background:#2b3242}
+ .btn:disabled{opacity:.5;cursor:default}
+ .btn.primary{background:#2563eb;border-color:#2563eb}
+ .btn.primary:hover{background:#1d4fd7}
+ .btn.ghost{background:transparent}
+ .btn.small{padding:3px 10px;font-size:12px}
+ .cards{display:flex;gap:12px;flex-wrap:wrap;padding:16px 20px}
+ .card{background:#171a21;border:1px solid #262b36;border-radius:10px;padding:12px 16px;min-width:110px}
+ .card .n{font-size:22px;font-weight:700}.card .l{color:#9aa3b2;font-size:12px}
+ table{width:calc(100% - 40px);margin:0 20px 24px;border-collapse:collapse;background:#171a21;border-radius:10px;overflow:hidden}
+ th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #262b36;vertical-align:top}
+ th{background:#1d222c;color:#9aa3b2;font-weight:600;font-size:12px}
+ tr:last-child td{border-bottom:none}
+ .pill{padding:1px 8px;border-radius:999px;font-size:12px;white-space:nowrap}
+ .ok{background:#123524;color:#3ddc84}.warn{background:#3a2f12;color:#f3c969}.mut{background:#22262f;color:#9aa3b2}
+ .src{font-size:11px;padding:0 6px;border-radius:4px;margin-right:6px;background:#22262f;color:#9aa3b2}
+ .src.taobao{background:#3a2412;color:#ff9d4d}.src.jd{background:#3a1416;color:#ff6b6b}
+ .items{color:#c3c9d4;font-size:12px}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+ h2{font-size:13px;color:#9aa3b2;margin:16px 20px 6px;text-transform:uppercase;letter-spacing:.04em}
+ .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10}
+ .overlay.hidden{display:none}
+ .modal{background:#171a21;border:1px solid #2f3644;border-radius:12px;padding:20px;width:440px;max-width:92vw}
+ .modal h3{margin:0 0 4px;font-size:15px}
+ .modal .sub{color:#9aa3b2;font-size:12px;margin-bottom:12px}
+ .modal label{display:block;font-size:12px;color:#9aa3b2;margin:10px 0 2px}
+ .modal input,.modal select{width:100%;padding:7px 9px;background:#0f1115;border:1px solid #2f3644;border-radius:7px;color:#e7e9ee;font-size:13px}
+ .modal .row2{display:flex;gap:12px}.modal .row2>label{flex:1}
+ .modal .req{color:#f3c969}
+ .err{color:#ff6b6b;font-size:12px;min-height:16px;margin-top:8px}
+ .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+</style></head><body>
+<header>
+ <span class="dot"></span><h1>eCom Agent</h1>
+ <button class="btn scanBtn" data-source="jd">⟳ Scan JD</button>
+ <button class="btn scanBtn" data-source="taobao">⟳ Scan Taobao</button>
+ <span class="status" id="status"></span>
+ <span class="spacer"></span>
+ <span class="status" id="ts"></span>
+</header>
+<div class="cards" id="cards"></div>
+<h2>Orders</h2>
+<table id="tbl"><thead><tr>
+ <th>Order#</th><th>Time</th><th>Status</th><th>¥</th><th>Items</th><th>Tracking</th><th>Declared</th><th></th></tr></thead>
+<tbody></tbody></table>
+
+<div class="overlay hidden" id="overlay">
+ <div class="modal">
+  <h3>Declare parcel — <span id="m-order"></span></h3>
+  <div class="sub" id="m-sub"></div>
+  <label>集运仓库</label><select id="m-warehouse"></select>
+  <label>快递单号 <span class="req">(required)</span></label><input id="m-tracking" placeholder="paste courier tracking number">
+  <label>品名 (customs item name)</label><input id="m-name">
+  <div class="row2">
+   <label>单价<input id="m-price"></label>
+   <label>数量<input id="m-qty"></label>
+  </div>
+  <label>备注</label><input id="m-remark">
+  <div class="err" id="m-error"></div>
+  <div class="actions">
+   <button class="btn ghost" id="m-cancel">Cancel</button>
+   <button class="btn primary" id="m-submit">Submit to shexp68</button>
+  </div>
+ </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const LABEL = { jd: 'JD', taobao: 'TB' };
+const orderLabel = (src, id) => `${LABEL[src] || 'JD'}#${id}`;
+const setStatus = (msg, err) => { const el=$('status'); el.textContent=msg||''; el.style.color=err?'#ff6b6b':'#9aa3b2'; };
+
+async function tick(){
+ const s = await (await fetch('/api/state')).json();
+ const m = s.summary;
+ $('cards').innerHTML = [
+  ['Orders',m.orders],['In transit',m.in_transit],['Has tracking',m.with_tracking],
+  ['Declared',m.declared],['Undeclared',m.undeclared],['Spend ¥',m.spend]
+ ].map(([l,n])=>`<div class="card"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+ const rows = s.orders.map(o=>{
+  const items = (o.items||[]).map(i=>`${esc(i.name)}×${i.qty}`).join('<br>')||'-';
+  const st = (o.status||'').match(/收货|发货/)
+     ? `<span class="pill warn">${esc(o.status)}</span>`
+     : `<span class="pill mut">${esc(o.status||'-')}</span>`;
+  const declaredCell = o.declared ? `<span class="pill ok">declared</span>` : `<span class="pill mut">no</span>`;
+  const action = o.declared ? '' : `<button class="btn small primary declareBtn" data-order="${o.order_id}">Declare</button>`;
+  const tno = esc(o.tracking_no) || '<span style=color:#5b6472>—</span>';
+  const refetchBtn = !o.declared && src === 'jd' ? ` <button class="btn small refetchBtn" data-order="${o.order_id}" title="Fetch waybill from JD">↻</button>` : '';
+  const src = o.source || 'jd';
+  return `<tr><td class="mono"><span class="src ${esc(src)}">${esc(LABEL[src]||src)}</span>${o.order_id}</td><td class="mono">${esc(o.order_time||'')}</td>
+   <td>${st}</td><td>${o.amount??'-'}</td><td class="items">${items}</td>
+   <td class="mono">${tno}${refetchBtn}</td>
+   <td>${declaredCell}</td><td>${action}</td></tr>`;
+ }).join('');
+ $('tbl').querySelector('tbody').innerHTML = rows || '<tr><td colspan=8 class=l>No orders yet — click <b>Scan JD</b> or <b>Scan Taobao</b>.</td></tr>';
+ $('ts').textContent = 'updated ' + new Date().toLocaleTimeString();
+}
+
+async function scan(source){
+ const btns=[...document.querySelectorAll('.scanBtn')]; btns.forEach(b=>b.disabled=true);
+ const name = source==='taobao' ? 'Taobao' : 'JD';
+ setStatus(`Scanning ${name} orders… (a browser window is working)`);
+ try{
+  const r = await (await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source})})).json();
+  if(r.ok){
+   let msg = `Scanned ${r.count} ${name} orders · ${r.inTransit} in transit · ${r.tracked} 快递单号 captured`;
+   if(r.trackingError) msg += ` — tracking capture issue: ${r.trackingError}`;
+   if(r.captcha) msg += ' — Taobao showed a slider check; solve it in the browser window and scan again';
+   setStatus(msg, !!(r.trackingError || r.captcha));
+   await tick();
+  } else setStatus(r.error || 'Scan failed', true);
+ }catch(e){ setStatus('Scan failed: '+e.message, true); }
+ finally{ btns.forEach(b=>b.disabled=false); }
+}
+
+let current=null;
+async function openDeclare(orderId){
+ $('m-error').textContent=''; setStatus('');
+ const r = await (await fetch('/api/declare/prepare?orderId='+encodeURIComponent(orderId))).json();
+ if(!r.ok){ setStatus(r.error||'Could not prepare', true); return; }
+ current = orderId;
+ $('m-order').textContent = orderLabel(r.order.source, orderId);
+ $('m-sub').textContent = `${r.order.shop||''}  ·  ¥${r.order.amount??'-'}  ·  ${r.order.status||''}`;
+ $('m-warehouse').innerHTML = r.warehouses.map(w=>`<option ${w===r.values.warehouse?'selected':''}>${esc(w)}</option>`).join('');
+ $('m-tracking').value = r.values.trackingNo||'';
+ $('m-name').value = r.values.itemName||'';
+ $('m-price').value = r.values.unitPrice||'';
+ $('m-qty').value = r.values.qty||'';
+ $('m-remark').value = r.values.remark||'';
+ $('overlay').classList.remove('hidden');
+ $('m-tracking').focus();
+}
+function closeModal(){ $('overlay').classList.add('hidden'); current=null; }
+
+async function refetch(orderId){
+ setStatus(`Fetching 快递单号 for ${orderId}… (opens JD)`);
+ try{
+  const r = await (await fetch('/api/track/refetch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId})})).json();
+  if(r.ok) setStatus(`${orderId}: 快递单号 ${r.trackingNo}${r.carrier?' ('+r.carrier+')':''}`);
+  else setStatus(`${orderId}: ${r.error||'refetch failed'}`, true);
+  await tick();
+ }catch(e){ setStatus('Refetch failed: '+e.message, true); }
+}
+
+async function submitDeclare(){
+ const tracking = $('m-tracking').value.trim();
+ if(!tracking){ $('m-error').textContent='快递单号 is required.'; $('m-tracking').focus(); return; }
+ const body = {
+  orderId: current, warehouse: $('m-warehouse').value, trackingNo: tracking,
+  itemName: $('m-name').value, unitPrice: $('m-price').value, qty: $('m-qty').value, remark: $('m-remark').value,
+ };
+ const btn=$('m-submit'); btn.disabled=true; $('m-error').textContent=''; btn.textContent='Submitting…';
+ try{
+  const r = await (await fetch('/api/declare/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  if(r.ok){ closeModal(); setStatus(`Declared ${$('m-order').textContent} → ${r.result}`); await tick(); }
+  else $('m-error').textContent = r.error || 'Submit failed';
+ }catch(e){ $('m-error').textContent = 'Submit failed: '+e.message; }
+ finally{ btn.disabled=false; btn.textContent='Submit to shexp68'; }
+}
+
+document.querySelectorAll('.scanBtn').forEach(b => b.addEventListener('click', () => scan(b.dataset.source)));
+$('m-cancel').addEventListener('click', closeModal);
+$('m-submit').addEventListener('click', submitDeclare);
+$('overlay').addEventListener('click', e=>{ if(e.target===$('overlay')) closeModal(); });
+$('tbl').addEventListener('click', e=>{
+ const d=e.target.closest('.declareBtn'); if(d){ openDeclare(d.dataset.order); return; }
+ const r=e.target.closest('.refetchBtn'); if(r){ refetch(r.dataset.order); return; }
+});
+
+tick(); setInterval(tick, 4000);
+</script></body></html>
